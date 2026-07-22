@@ -1,0 +1,45 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: n8n-security-headers
+  namespace: n8n-prod
+spec:
+  headers:
+    frameDeny: true
+    sslRedirect: true
+    browserXssFilter: true
+    contentTypeNosniff: true
+    stsSeconds: 31536000
+    stsIncludeSubdomains: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: n8n-ratelimit
+  namespace: n8n-prod
+spec:
+  rateLimit:
+    average: 50
+    burst: 100
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: n8n-ingressroute
+  namespace: n8n-prod
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`n8n.yourdomain.com`)
+      kind: Rule
+      services:
+        - name: n8n-svc
+          port: 80
+      middlewares:
+        - name: n8n-security-headers
+        - name: n8n-ratelimit
+  tls:
+    certResolver: le
+    domains:
+      - main: n8n.yourdomain.com

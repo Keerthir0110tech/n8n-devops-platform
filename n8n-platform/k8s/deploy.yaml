@@ -1,0 +1,84 @@
+# Save this file as: .github/workflows/deploy.yaml  (in your repo root)
+name: Deploy n8n to Kubernetes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "k8s/**"
+      - ".github/workflows/deploy.yaml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "k8s/**"
+  workflow_dispatch: {}
+
+jobs:
+  validate:
+    name: Lint & validate manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubeconform
+        run: |
+          curl -sSLo kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+          tar -xzf kubeconform.tar.gz kubeconform
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Validate all manifests against Kubernetes schema
+        run: |
+          kubeconform -strict -summary \
+            -kubernetes-version 1.29.0 \
+            -ignore-missing-schemas \
+            k8s/*.yaml
+
+      - name: yamllint
+        run: |
+          pip install --break-system-packages yamllint
+          yamllint -d "{extends: default, rules: {line-length: disable}}" k8s/*.yaml
+
+  deploy:
+    name: Apply to cluster
+    needs: validate
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up kubeconfig
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG_B64 }}" | base64 -d > "$HOME/.kube/config"
+
+      - name: Apply manifests in order
+        run: |
+          for f in k8s/00-namespace.yaml \
+                   k8s/01-secrets.yaml \
+                   k8s/02-configmap.yaml \
+                   k8s/03-postgres-statefulset.yaml \
+                   k8s/04-redis-statefulset.yaml \
+                   k8s/05-n8n-deployment.yaml \
+                   k8s/06-n8n-service.yaml \
+                   k8s/07-hpa.yaml \
+                   k8s/08-ingress-traefik.yaml \
+                   k8s/09-networkpolicy.yaml \
+                   k8s/10-pdb.yaml \
+                   k8s/11-cert-manager-issuer.yaml \
+                   k8s/13-backup-cronjob.yaml \
+                   k8s/14-servicemonitor.yaml; do
+            echo "Applying $f"
+            kubectl apply -f "$f"
+          done
+
+      - name: Wait for rollout
+        run: |
+          kubectl -n n8n-prod rollout status deployment/n8n --timeout=180s
+
+      - name: Post-deploy smoke test
+        run: |
+          kubectl -n n8n-prod run smoke-test --rm -i --restart=Never \
+            --image=curlimages/curl -- \
+            curl -sf http://n8n-svc.n8n-prod.svc.cluster.local/healthz

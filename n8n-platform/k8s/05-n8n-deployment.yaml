@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: n8n
+  namespace: n8n-prod
+  labels:
+    app: n8n
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: n8n
+  template:
+    metadata:
+      labels:
+        app: n8n
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5678"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: n8n
+          image: docker.n8n.io/n8nio/n8n:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5678
+          envFrom:
+            - configMapRef:
+               name: n8n-config
+              -secretRef:
+               name: n8n-secrets
+              -secretRef:
+                name: kubectl -n n8n-prod get secret n8n-secrets -o yaml
+                type k8s\05-n8n-deployment.yaml 
+                secretRef:
+                 name: n8n-secrets
+          resources:
+            requests: { cpu: "250m", memory: "512Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 5678 }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 5678 }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false   # n8n writes to /home/node/.n8n
+            capabilities:
+              drop: ["ALL"]
+      terminationGracePeriodSeconds: 30

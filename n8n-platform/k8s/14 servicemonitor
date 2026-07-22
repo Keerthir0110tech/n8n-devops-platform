@@ -1,0 +1,56 @@
+# Requires the Prometheus Operator (kube-prometheus-stack) CRDs to be installed
+# in-cluster. If you don't have that, skip this file — the pod annotations
+# already in 05-n8n-deployment.yaml (prometheus.io/scrape=true) are enough
+# for a plain annotation-based Prometheus to pick n8n up automatically.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: n8n-metrics
+  namespace: n8n-prod
+  labels:
+    release: monitoring   # match your Prometheus Operator's serviceMonitorSelector label
+spec:
+  selector:
+    matchLabels:
+      app: n8n
+  namespaceSelector:
+    matchNames:
+      - n8n-prod
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: n8n-alerts
+  namespace: n8n-prod
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: n8n.rules
+      rules:
+        - alert: N8nPodDown
+          expr: up{job="n8n-metrics"} == 0
+          for: 5m
+          labels: { severity: critical }
+          annotations:
+            summary: "n8n pod not reporting metrics"
+            description: "n8n target has been down for 5 minutes."
+        - alert: N8nHighMemory
+          expr: |
+            sum(container_memory_working_set_bytes{namespace="n8n-prod",pod=~"n8n-.*"}) by (pod)
+            / 1024 / 1024 > 900
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: "n8n pod memory near limit"
+            description: "Pod {{ $labels.pod }} is using >900Mi (limit is 1Gi)."
+        - alert: PostgresBackupMissed
+          expr: time() - kube_cronjob_status_last_successful_time{namespace="n8n-prod", cronjob="postgres-nightly-backup"} > 90000
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: "Nightly Postgres backup hasn't succeeded in >25h"

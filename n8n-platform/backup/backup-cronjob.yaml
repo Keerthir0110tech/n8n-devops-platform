@@ -1,0 +1,41 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: n8n-nightly-backup
+  namespace: n8n-prod
+spec:
+  schedule: "0 2 * * *"        # 02:00 IST daily
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: your-registry/n8n-backup-tool:latest   # postgres-client + restic
+              command: ["/bin/sh", "/scripts/backup.sh"]
+              envFrom:
+                - secretRef:
+                    name: n8n-secrets
+              env:
+                - name: RESTIC_REPOSITORY
+                  value: "s3:https://s3.ap-south-1.amazonaws.com/your-backup-bucket/n8n"
+                - name: RESTIC_PASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: backup-secrets, key: RESTIC_PASSWORD }
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef: { name: backup-secrets, key: AWS_ACCESS_KEY_ID }
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef: { name: backup-secrets, key: AWS_SECRET_ACCESS_KEY }
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+          volumes:
+            - name: scripts
+              configMap:
+                name: backup-scripts
+                defaultMode: 0755

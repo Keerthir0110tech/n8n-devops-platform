@@ -1,0 +1,42 @@
+{
+  "title": "n8n Automation Platform - Overview",
+  "panels": [
+    {
+      "title": "Workflow Executions / min",
+      "type": "timeseries",
+      "targets": [{ "expr": "rate(n8n_workflow_executions_total[1m])" }]
+    },
+    {
+      "title": "Failed Executions / min",
+      "type": "timeseries",
+      "targets": [{ "expr": "rate(n8n_workflow_executions_total{status=\"error\"}[1m])" }]
+    },
+    {
+      "title": "n8n Pod CPU Usage",
+      "type": "timeseries",
+      "targets": [{ "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"n8n-prod\", pod=~\"n8n-.*\"}[5m])) by (pod)" }]
+    },
+    {
+      "title": "n8n Pod Memory Usage",
+      "type": "timeseries",
+      "targets": [{ "expr": "sum(container_memory_working_set_bytes{namespace=\"n8n-prod\", pod=~\"n8n-.*\"}) by (pod)" }]
+    },
+    {
+      "title": "Redis Queue Depth",
+      "type": "stat",
+      "targets": [{ "expr": "redis_queue_length{namespace=\"n8n-prod\"}" }]
+    },
+    {
+      "title": "HPA Current / Max Replicas",
+      "type": "stat",
+      "targets": [{ "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"n8n-prod\"}" }]
+    },
+    {
+      "title": "Postgres Disk Usage %",
+      "type": "gauge",
+      "targets": [{ "expr": "1 - (node_filesystem_avail_bytes{mountpoint=\"/var/lib/postgresql/data\"} / node_filesystem_size_bytes{mountpoint=\"/var/lib/postgresql/data\"})" }]
+    }
+  ],
+  "schemaVersion": 39,
+  "refresh": "30s"
+}

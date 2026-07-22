@@ -1,0 +1,96 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pg-backup-pvc
+  namespace: n8n-prod
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: standard   # match your cluster's StorageClass
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-nightly-backup
+  namespace: n8n-prod
+spec:
+  schedule: "30 2 * * *"        # 02:30 daily (server timezone, usually UTC)
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: pg-dump
+              image: postgres:16-alpine
+              envFrom:
+                - secretRef:
+                    name: n8n-secrets
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  TS=$(date +%Y%m%d-%H%M%S)
+                  FILE="/backup/n8n-${TS}.sql.gz"
+                  echo "Dumping ${POSTGRES_DB} to ${FILE}"
+                  PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
+                    -h postgres.n8n-prod.svc.cluster.local \
+                    -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
+                    | gzip > "${FILE}"
+                  echo "Backup complete: $(ls -lh ${FILE})"
+                  # retention: keep last 14 dumps
+                  cd /backup && ls -1t n8n-*.sql.gz | tail -n +15 | xargs -r rm -f
+              volumeMounts:
+                - name: backup-vol
+                  mountPath: /backup
+              resources:
+                requests: { cpu: "100m", memory: "128Mi" }
+                limits: { cpu: "500m", memory: "256Mi" }
+          volumes:
+            - name: backup-vol
+              persistentVolumeClaim:
+                claimName: pg-backup-pvc
+---
+# One-off Job manifest you can copy to test a restore manually.
+# Usage: kubectl apply -f this-section  (after editing FILE below), or just
+# kubectl exec into a postgres pod and run psql -f manually — see RUNBOOK.md
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-restore-test
+  namespace: n8n-prod
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: pg-restore
+          image: postgres:16-alpine
+          envFrom:
+            - secretRef:
+                name: n8n-secrets
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              LATEST=$(ls -1t /backup/n8n-*.sql.gz | head -n1)
+              echo "Restoring from ${LATEST}"
+              gunzip -c "${LATEST}" | PGPASSWORD="${POSTGRES_PASSWORD}" psql \
+                -h postgres.n8n-prod.svc.cluster.local \
+                -U "${POSTGRES_USER}" -d "${POSTGRES_DB}"
+              echo "Restore complete"
+          volumeMounts:
+            - name: backup-vol
+              mountPath: /backup
+      volumes:
+        - name: backup-vol
+          persistentVolumeClaim:
+            claimName: pg-backup-pvc

@@ -1,0 +1,100 @@
+{
+    "title": "n8n Production Overview",
+    "timezone": "browser",
+    "schemaVersion": 39,
+    "panels": [
+        {
+            "title": "Pod CPU Usage",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"n8n-prod\",pod=~\"n8n-.*\"}[5m])) by (pod)"
+                }
+            ]
+        },
+        {
+            "title": "Pod Memory Usage (Mi)",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "sum(container_memory_working_set_bytes{namespace=\"n8n-prod\",pod=~\"n8n-.*\"}) by (pod) / 1024 / 1024"
+                }
+            ]
+        },
+        {
+            "title": "n8n Replica Count",
+            "type": "stat",
+            "gridPos": {
+                "h": 6,
+                "w": 6,
+                "x": 0,
+                "y": 8
+            },
+            "targets": [
+                {
+                    "expr": "kube_deployment_status_replicas_available{namespace=\"n8n-prod\",deployment=\"n8n\"}"
+                }
+            ]
+        },
+        {
+            "title": "HPA Current vs Max Replicas",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 6,
+                "w": 6,
+                "x": 6,
+                "y": 8
+            },
+            "targets": [
+                {
+                    "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"n8n-prod\"}"
+                },
+                {
+                    "expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"n8n-prod\"}"
+                }
+            ]
+        },
+        {
+            "title": "Last Successful Backup (hours ago)",
+            "type": "stat",
+            "gridPos": {
+                "h": 6,
+                "w": 12,
+                "x": 0,
+                "y": 14
+            },
+            "targets": [
+                {
+                    "expr": "(time() - kube_cronjob_status_last_successful_time{namespace=\"n8n-prod\",cronjob=\"postgres-nightly-backup\"}) / 3600"
+                }
+            ]
+        },
+        {
+            "title": "Workflow Executions (rate)",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 8,
+                "w": 24,
+                "x": 0,
+                "y": 20
+            },
+            "targets": [
+                {
+                    "expr": "sum(rate(n8n_workflow_execution_total[5m])) by (status)"
+                }
+            ]
+        }
+    ]
+}

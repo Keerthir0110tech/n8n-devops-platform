@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: n8n-config
+  namespace: n8n-prod
+data:
+  DB_TYPE: "postgresdb"
+  DB_POSTGRESDB_HOST: "postgres.n8n-prod.svc.cluster.local"
+  DB_POSTGRESDB_PORT: "5432"
+  EXECUTIONS_MODE: "queue"
+  QUEUE_BULL_REDIS_HOST: "redis.n8n-prod.svc.cluster.local"
+  N8N_HOST: "n8n.yourdomain.com"
+  N8N_PROTOCOL: "https"
+  WEBHOOK_URL: "https://n8n.yourdomain.com/"
+  NODE_ENV: "production"
+  GENERIC_TIMEZONE: "Asia/Kolkata"
+  N8N_METRICS: "true"
+  N8N_LOG_LEVEL: "info"

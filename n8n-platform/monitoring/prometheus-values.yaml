@@ -1,0 +1,49 @@
+# Values file for kube-prometheus-stack (installed via Helm):
+# helm install monitoring prometheus-community/kube-prometheus-stack \
+#   -n monitoring --create-namespace -f prometheus-values.yaml
+
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    additionalScrapeConfigs:
+      - job_name: "n8n"
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: ["n8n-prod"]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+
+alertmanager:
+  config:
+    route:
+      receiver: "slack-notifications"
+      group_wait: 30s
+      repeat_interval: 4h
+    receivers:
+      - name: "slack-notifications"
+        slack_configs:
+          - api_url: "https://hooks.slack.com/services/REPLACE/ME/WEBHOOK"
+            channel: "#platform-alerts"
+            send_resolved: true
+
+grafana:
+  adminPassword: "REPLACE_ME"
+  defaultDashboardsEnabled: true
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      url: http://loki:3100
+      access: proxy
+
+# Alert rules of interest (added as PrometheusRule CRs):
+#  - n8n pod restart count > 3 in 15m
+#  - n8n error execution rate > 5% over 10m
+#  - Postgres disk usage > 80%
+#  - HPA at max replicas for > 10m (capacity signal)

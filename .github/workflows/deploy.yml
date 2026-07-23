@@ -1,0 +1,105 @@
+name: Build, Scan, and Deploy n8n Platform
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docker/**'
+      - 'k8s/**'
+      - 'ci-cd/**'
+  workflow_dispatch: {}
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-scan-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set image tag (short SHA)
+        id: meta
+        run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker
+          file: ./docker/Dockerfile
+          push: false
+          load: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+          format: 'table'
+
+      - name: Push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker
+          file: ./docker/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+  deploy:
+    needs: build-scan-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > "$HOME/.kube/config"
+
+      - name: Set image tag in deployment
+        run: |
+          kubectl set image deployment/n8n \
+            n8n=ghcr.io/${{ env.IMAGE_NAME }}:${{ needs.build-scan-push.outputs.image_tag }} \
+            -n n8n-prod
+
+      - name: Apply manifests
+        run: |
+          kubectl apply -f k8s/00-namespace.yaml
+          kubectl apply -f k8s/01-secrets.yaml
+          kubectl apply -f k8s/02-configmap.yaml
+          kubectl apply -f k8s/03-postgres-statefulset.yaml
+          kubectl apply -f k8s/04-redis-statefulset.yaml
+          kubectl apply -f k8s/05-n8n-deployment.yaml
+          kubectl apply -f k8s/06-n8n-service.yaml
+          kubectl apply -f k8s/07-hpa.yaml
+          kubectl apply -f k8s/11-cert-manager-issuer.yaml
+          kubectl apply -f k8s/08-ingress-traefik.yaml
+          kubectl apply -f k8s/09-networkpolicy.yaml
+          kubectl apply -f k8s/10-pdb.yaml
+
+      - name: Wait for rollout
+        run: kubectl rollout status deployment/n8n -n n8n-prod --timeout=180s

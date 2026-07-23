@@ -30,20 +30,15 @@ spec:
         fsGroup: 1000
       containers:
         - name: n8n
-          image: docker.n8n.io/n8nio/n8n:latest
-          imagePullPolicy: Always
+          image: n8nio/n8n:1.68.0
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5678
           envFrom:
             - configMapRef:
-               name: n8n-config
-              -secretRef:
-               name: n8n-secrets
-              -secretRef:
-                name: kubectl -n n8n-prod get secret n8n-secrets -o yaml
-                type k8s\05-n8n-deployment.yaml 
-                secretRef:
-                 name: n8n-secrets
+                name: n8n-config
+            - secretRef:
+                name: n8n-secrets
           resources:
             requests: { cpu: "250m", memory: "512Mi" }
             limits: { cpu: "1", memory: "1Gi" }
@@ -57,7 +52,7 @@ spec:
             periodSeconds: 20
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false   # n8n writes to /home/node/.n8n
+            readOnlyRootFilesystem: false
             capabilities:
               drop: ["ALL"]
       terminationGracePeriodSeconds: 30

@@ -1,0 +1,76 @@
+# DEMO-SAFE VERSION — gets you one real "Completed" Job today.
+# Uses postgres:16-alpine (already pulled by your Postgres StatefulSet, so
+# no placeholder image / no AWS or restic secrets required).
+# Your original backup-cronjob.yaml (restic + S3, offsite retention) is the
+# real production target — mention that tradeoff on camera: "for the demo
+# this dumps to a PVC; in production this pushes to S3 via restic with a
+# 30-day retention policy, which is what the original manifest does."
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: n8n-backup-storage
+  namespace: n8n-prod
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-scripts
+  namespace: n8n-prod
+data:
+  backup.sh: |
+    #!/bin/sh
+    set -eu
+    TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+    DUMP_FILE="/backups/n8n-db-${TIMESTAMP}.sql.gz"
+
+    echo "[backup] Dumping Postgres database..."
+    PGPASSWORD="$POSTGRES_PASSWORD" pg_dump \
+      -h postgres.n8n-prod.svc.cluster.local \
+      -U "$POSTGRES_USER" \
+      -d "$POSTGRES_DB" \
+      | gzip > "$DUMP_FILE"
+
+    echo "[backup] Wrote $DUMP_FILE"
+    ls -lh /backups
+    echo "[backup] Done: ${TIMESTAMP}"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: n8n-nightly-backup
+  namespace: n8n-prod
+spec:
+  schedule: "0 2 * * *"
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: postgres:16-alpine
+              command: ["/bin/sh", "/scripts/backup.sh"]
+              envFrom:
+                - secretRef:
+                    name: n8n-secrets
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                - name: backup-storage
+                  mountPath: /backups
+          volumes:
+            - name: scripts
+              configMap:
+                name: backup-scripts
+                defaultMode: 0755
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: n8n-backup-storage

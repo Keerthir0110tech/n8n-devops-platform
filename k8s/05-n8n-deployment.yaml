@@ -30,7 +30,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: n8n
-          image: n8nio/n8n:1.68.0   # matches your Dockerfile's base version — pin the tag, don't use :latest
+          image: docker.n8n.io/n8nio/n8n:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 5678
